@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07120c">
+  <title>Timmy's Local AI</title>
+  <style>
+    :root{color-scheme:dark;--bg:#07120c;--panel:#10351e;--panel2:#174b2b;--border:#34734a;--text:#effff2;--muted:#a7c8ad;--green:#55c878;--dark:#258044;--red:#ff7979}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at top,#12351f,var(--bg) 62%);color:var(--text);font:15px Arial,sans-serif}button,select,textarea{font:inherit}button{cursor:pointer;color:inherit}.shell{width:min(900px,100%);min-height:100vh;margin:auto;padding:22px;display:flex;flex-direction:column}.head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0 18px;border-bottom:1px solid var(--border)}h1{font-size:21px;margin:0}.local{color:var(--green);font-size:12px;margin-top:5px}.model-select{max-width:48%;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--panel);color:var(--text)}.conversation{flex:1;display:flex;flex-direction:column;gap:14px;padding:24px 0}.welcome{margin:auto;text-align:center;color:var(--muted);max-width:500px;line-height:1.55}.welcome strong{display:block;color:var(--text);font-size:25px;margin-bottom:8px}.message{max-width:85%;padding:13px 15px;border:1px solid var(--border);border-radius:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}.message.user{align-self:flex-end;background:var(--panel2)}.message.assistant{align-self:flex-start;background:var(--panel)}.composer{position:sticky;bottom:0;background:linear-gradient(transparent,var(--bg) 20%);padding:14px 0 6px}.compose-row{display:flex;align-items:flex-end;gap:9px;padding:9px;border:1px solid var(--border);border-radius:16px;background:var(--panel)}textarea{flex:1;min-height:44px;max-height:150px;resize:vertical;padding:10px;border:0;outline:0;background:transparent;color:var(--text)}.btn{padding:10px 13px;border:0;border-radius:9px;background:var(--dark);font-weight:bold}.btn:hover{background:var(--green);color:#102918}.btn.secondary{border:1px solid var(--border);background:#17452a}.btn.secondary.active{background:#9b4141}.btn:disabled,textarea:disabled,select:disabled{opacity:.55;cursor:not-allowed}.status{min-height:20px;margin-top:7px;color:var(--muted);font-size:12px;text-align:center}.status.error{color:var(--red)}.screen-note{color:var(--green)}@media(max-width:600px){.shell{padding:14px}.head{align-items:flex-start;flex-direction:column}.model-select{max-width:100%;width:100%}.message{max-width:100%}.compose-row{flex-wrap:wrap}.compose-row textarea{flex-basis:100%}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="head">
+      <div><h1>Timmy's Local AI</h1><div class="local">Runs on your device · no Groq or cloud chat</div></div>
+      <select id="model" class="model-select" aria-label="Choose a local vision model" disabled><option>Loading local model list…</option></select>
+    </header>
+    <section id="conversation" class="conversation" aria-live="polite"><div class="welcome"><strong>One AI. One conversation.</strong>Choose a model to download it to this device. Use Share screen to ask the local AI about your screen in a separate green pop-out.</div></section>
+    <form id="composer" class="composer">
+      <div class="compose-row">
+        <textarea id="prompt" placeholder="Load a local model first…" aria-label="Message the local AI" disabled></textarea>
+        <button id="share" class="btn secondary" type="button" title="Open the screen assistant pop-out">Share screen</button>
+        <button id="send" class="btn" type="submit" disabled>Send</button>
+      </div>
+      <div id="status" class="status" role="status">Loading local AI library…</div>
+    </form>
+  </main>
+<script type="module">
+  const $ = id => document.getElementById(id);
+  const modelSelect = $('model'), promptBox = $('prompt'), sendButton = $('send'), shareButton = $('share');
+  const conversation = $('conversation'), statusBox = $('status');
+  let engine = null, modelList = [], stream = null, popup = null, busy = false, channel = null;
+  const history = [];
+  const setStatus = (text, error = false) => { statusBox.textContent = text; statusBox.classList.toggle('error', error); };
+  function addMessage(role, text) {
+    conversation.querySelector('.welcome')?.remove();
+    const el = document.createElement('div'); el.className = `message ${role}`; el.textContent = text;
+    conversation.append(el); el.scrollIntoView({block:'nearest'}); return el;
+  }
+  function setBusy(value) { busy = value; promptBox.disabled = value || !engine; sendButton.disabled = value || !engine; modelSelect.disabled = value; shareButton.disabled = value; }
+  function openPopup() {
+    if (popup && !popup.closed) { popup.focus(); return popup; }
+    popup = window.open('', 'timmy-local-ai-screen', 'popup,width=470,height=720,resizable=yes,scrollbars=yes');
+    if (!popup) { setStatus('Pop-up blocked. Allow pop-ups for this page and try again.', true); return null; }
+    popup.document.open();
+    popup.document.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Local AI · Screen share</title><style>
+      *{box-sizing:border-box}body{margin:0;height:100vh;display:flex;flex-direction:column;background:#07120c;color:#effff2;font:14px Arial,sans-serif}.head{display:flex;align-items:center;gap:10px;padding:12px;background:#0d2417;border-bottom:1px solid #34734a}.head strong{flex:1}.live{font-size:11px;color:#a7c8ad}.live.on{color:#55c878}.btn{border:0;border-radius:8px;padding:8px 10px;background:#258044;color:#fff;font-weight:bold;cursor:pointer}.btn:hover{background:#55c878;color:#173b22}.video{width:100%;max-height:34vh;min-height:130px;object-fit:contain;background:#020603}.chat{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:12px}.bubble{max-width:92%;padding:10px 12px;border:1px solid #34734a;border-radius:11px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45}.bubble.user{align-self:flex-end;background:#174b2b}.bubble.assistant{align-self:flex-start;background:#10351e}.foot{padding:10px;border-top:1px solid #34734a;background:#0d2417}.row{display:flex;gap:8px}textarea{flex:1;min-width:0;resize:vertical;min-height:44px;padding:10px;border:1px solid #34734a;border-radius:9px;background:#07120c;color:#effff2}.hint{min-height:17px;margin-top:6px;color:#a7c8ad;font-size:11px}.stop{background:#9b4141}
+      </style></head><body><header class="head"><strong>Screen share · Local AI</strong><span id="live" class="live">Not sharing</span><button id="stop" class="btn stop" type="button">Stop</button></header><video id="video" class="video" autoplay muted playsinline></video><section id="chat" class="chat" aria-live="polite"><div class="bubble assistant">Share your screen from the AI page, then ask me about what you see. Replies come from the local model.</div></section><form id="form" class="foot"><div class="row"><textarea id="question" placeholder="Ask about your screen…" aria-label="Ask about your screen"></textarea><button class="btn" type="submit">Ask</button></div><div id="hint" class="hint">Waiting for screen sharing…</div></form><script>
+      const ch=new BroadcastChannel('timmy-local-ai-screen');const chat=document.getElementById('chat'),hint=document.getElementById('hint');
+      function add(role,text){const b=document.createElement('div');b.className='bubble '+role;b.textContent=text;chat.append(b);chat.scrollTop=chat.scrollHeight;return b}
+      document.getElementById('form').addEventListener('submit',e=>{e.preventDefault();const q=document.getElementById('question'),text=q.value.trim();if(!text)return;add('user',text);q.value='';hint.textContent='Sending to the local AI…';ch.postMessage({type:'question',text})});
+      document.getElementById('stop').addEventListener('click',()=>ch.postMessage({type:'stop'}));
+      ch.onmessage=e=>{const m=e.data||{};if(m.type==='state'){document.getElementById('live').textContent=m.active?'Screen is shared':'Not sharing';document.getElementById('live').classList.toggle('on',!!m.active);hint.textContent=m.status||''}if(m.type==='answer')add('assistant',m.text);if(m.type==='status')hint.textContent=m.text||''};
+      window.addEventListener('beforeunload',()=>ch.close());
+    <\/script></body></html>`);
+    popup.document.close(); popup.focus(); return popup;
+  }
+  function broadcast(message) { try { channel?.postMessage(message); } catch {} }
+  function captureFrame() {
+    const video = document.createElement('video'); video.srcObject = stream; video.muted = true;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Screen capture is not ready yet.')), 5000);
+      video.onloadedmetadata = async () => { try { await video.play(); const c=document.createElement('canvas'); const scale=Math.min(1,1280/video.videoWidth); c.width=Math.round(video.videoWidth*scale); c.height=Math.round(video.videoHeight*scale); c.getContext('2d').drawImage(video,0,0,c.width,c.height); clearTimeout(timer); resolve(c.toDataURL('image/jpeg',.82)); } catch(e) { clearTimeout(timer); reject(e); } };
+      video.onerror = () => { clearTimeout(timer); reject(new Error('Could not read the shared screen.')); };
+    });
+  }
+  async function askAI(text, includeScreen) {
+    if (!engine || busy) return;
+    setBusy(true); broadcast({type:'status',text:'Local AI is thinking…'});
+    const assistant = addMessage('assistant','Thinking…');
+    const userContent = [{type:'text',text}];
+    try {
+      if (includeScreen && stream) userContent.push({type:'image_url',image_url:{url:await captureFrame()}});
+      const messages = [...history,{role:'user',content:userContent}];
+      const result = await engine.chat.completions.create({messages,temperature:.6,max_tokens:700});
+      const answer = result.choices?.[0]?.message?.content || 'The model returned no response.';
+      assistant.textContent = answer;
+      history.push({role:'user',content:text},{role:'assistant',content:answer});
+      broadcast({type:'answer',text:answer}); broadcast({type:'status',text:'Reply generated on this device.'}); setStatus(stream ? 'Screen shared with the local AI. Your screen is not sent to a cloud chat.' : 'Ready · running locally on this device.');
+    } catch (error) { assistant.textContent = `Error: ${error.message || error}`; broadcast({type:'status',text:'The local AI request failed.'}); setStatus(error.message || 'The local AI request failed.',true); }
+    finally { setBusy(false); promptBox.focus(); }
+  }
+  $('composer').addEventListener('submit',e=>{e.preventDefault();const text=promptBox.value.trim();if(!text)return;promptBox.value='';addMessage('user',text);askAI(text,!!stream);});
+  promptBox.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('composer').requestSubmit();}});
+  shareButton.addEventListener('click',async()=>{
+    const pop=openPopup(); if(!pop)return;
+    try {
+      if(!stream){stream=await navigator.mediaDevices.getDisplayMedia({video:{cursor:'always'},audio:false});stream.getVideoTracks()[0].addEventListener('ended',stopSharing);shareButton.classList.add('active');shareButton.textContent='Stop sharing';shareButton.title='Stop sharing your screen';setStatus('Screen shared. Ask the local AI a question to analyze it.');}
+      broadcast({type:'state',active:true,status:'Screen is ready. Ask a question. Your AI runs locally.'});
+    } catch(error) { if(error.name==='NotAllowedError')setStatus('Screen sharing was cancelled.',true);else setStatus(`Could not share screen: ${error.message||error}`,true);broadcast({type:'state',active:false,status:'Screen sharing did not start.'}); }
+  });
+  function stopSharing(){if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;shareButton.classList.remove('active');shareButton.textContent='Share screen';shareButton.title='Open the screen assistant pop-out';broadcast({type:'state',active:false,status:'Screen sharing stopped.'});setStatus('Screen sharing stopped.');}
+  channel = new BroadcastChannel('timmy-local-ai-screen');
+  channel.addEventListener('message',e=>{const m=e.data||{};if(m.type==='stop')stopSharing();if(m.type==='question'&&m.text){addMessage('user',`Screen question: ${m.text}`);askAI(m.text,true);}});
+  window.addEventListener('beforeunload',()=>{stopSharing();channel?.close();});
+  try {
+    const {CreateMLCEngine,prebuiltAppConfig}=await import('https://esm.run/@mlc-ai/web-llm');
+    modelList=(prebuiltAppConfig.model_list||[]).filter(m=>{const id=(m.model_id||'').toLowerCase(),type=(m.model_type||'').toLowerCase();return type.includes('vision')||type.includes('vl')||type.includes('multimodal')||/llava|qwen[23]-vl|internvl|minicpm-v/.test(id);}).filter(m=>m.model_id);
+    modelSelect.replaceChildren(new Option('Choose a local vision model…',''));
+    for(const model of modelList){const option=new Option(model.model_id,model.model_id);modelSelect.add(option);}
+    if(!modelList.length)throw new Error('No supported local vision models were found.');
+    modelSelect.disabled=false;setStatus('Choose a local vision model. The first download can be large.');
+    modelSelect.addEventListener('change',async()=>{
+      const model=modelList.find(m=>m.model_id===modelSelect.value);if(!model)return;
+      setBusy(true);engine=null;setStatus(`Downloading ${model.model_id} to this device… This may take a while.`);
+      try{engine=await CreateMLCEngine(model.model_id,{initProgressCallback:p=>setStatus(p.text||`Downloading local model… ${Math.round((p.progress||0)*100)}%`)});promptBox.disabled=false;promptBox.placeholder='Message your local AI…';sendButton.disabled=false;setStatus(`${model.model_id} is ready. Model inference runs locally on this device.`);addMessage('assistant',`I'm ready. I'm running ${model.model_id} locally on this device. Use Share screen to ask me about your screen.`);}
+      catch(error){engine=null;setStatus(`Could not load model: ${error.message||error}`,true);}
+      finally{setBusy(false);}
+    });
+  } catch(error) { modelSelect.replaceChildren(new Option('Local AI unavailable',''));setStatus(`Could not load the local AI library: ${error.message||error}`,true); }
+</script>
+</body>
+</html>
