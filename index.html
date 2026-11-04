@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111111">
+  <title>Timmy’s Math Work</title>
+  <style>
+    html, body { margin: 0; width: 100%; min-height: 100%; background: #111; color: #fff; }
+    body { font: 14px system-ui, sans-serif; }
+    #status { padding: 16px; }
+  </style>
+</head>
+<body>
+  <div id="status">Loading Timmy’s Math Work…</div>
+  <script>
+    // Auto-update loader: always requests the latest hosted HTML.
+    const fileUrl =
+      "https://cdn.jsdelivr.net/gh/Rocky11234321/TImmysmathworkAutoupdate@main/pureauratimmythingy-2.html";
+
+    async function loadLatest() {
+      const response = await fetch(fileUrl + "?update=" + Date.now(), {
+        cache: "no-store"
+      });
+      if (!response.ok) {
+        throw new Error(`Could not load the page (HTTP ${response.status}).`);
+      }
+
+      const html = await response.text();
+      document.open();
+      document.write(html);
+      document.close();
+    }
+
+    loadLatest().catch((error) => {
+      document.getElementById("status").textContent =
+        error.message || "Could not load the page from jsDelivr. Try again later.";
+    });
+  </script>
+</body>
+</html>
